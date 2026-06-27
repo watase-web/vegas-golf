@@ -76,7 +76,7 @@
 
 <script>
 "use strict";
-var APP_VERSION = "v1.5 (2026-06-27)";
+var APP_VERSION = "v1.9 (2026-06-27)";
 
 // ── 定数 ──
 var SEAT = ["A","B","C","D"];
@@ -94,16 +94,16 @@ var COURSE_PRESETS = [
     hp:  [7,13,15,3,9,1,17,5,11, 14,10,18,6,2,16,4,12,8] }
 ];
 var TIP_ITEMS = [
-  { key:"birdie", label:"バーディー", auto:true,  def:1 },
-  { key:"nearpin", label:"ニアピン",  auto:false, def:1 },
-  { key:"sunaichi",label:"砂一",      auto:false, def:1 },
-  { key:"imo",     label:"イモ",      auto:false, def:1, negative:true }
+  { key:"birdie", label:"バーディー", auto:true,  def:3 },
+  { key:"nearpin", label:"ニアピン",  auto:false, def:3 },
+  { key:"sunaichi",label:"砂一",      auto:false, def:3 },
+  { key:"imo",     label:"イモ",      auto:false, def:3, negative:true }
 ];
 var OLY_MEDALS = [
-  { key:"gold",  label:"金", color:"#C9A227", def:5 },
-  { key:"silver",label:"銀", color:"#9098A1", def:4 },
-  { key:"bronze",label:"銅", color:"#A9712E", def:3 },
-  { key:"iron",  label:"鉄", color:"#5B6066", def:2 }
+  { key:"gold",  label:"金", color:"#C9A227", def:4 },
+  { key:"silver",label:"銀", color:"#9098A1", def:3 },
+  { key:"bronze",label:"銅", color:"#A9712E", def:2 },
+  { key:"iron",  label:"鉄", color:"#5B6066", def:1 }
 ];
 
 function pairingForHole(holeNo, splitBack) {
@@ -120,10 +120,11 @@ function vegasNumber(s1, s2, highFirst) {
 var S = {
   names: ["","","",""],
   pointValue: 100,
+  vegasOn: true,
   highFirst: false,
-  flip: false,
-  roundUp5: false,
-  splitBack: false,
+  flip: true,
+  roundUp5: true,
+  splitBack: true,
   backOrder: [0,1,2,3],
   tipOn: true,
   olyOn: true,
@@ -134,12 +135,12 @@ var S = {
   hp: [],                      // 現在コースのHP配列(1〜18)
   tipPts: {}, 
   olyPts: {},
-  olyChipinPts: { offGreen:5, onePutt:4 },
-  olyBonus: { allMedals:3, allChipin:10 },
+  olyChipinPts: { offGreen:5 },
+  olyBonus: { allMedals:5, allChipin:10 },
   scores: [],   // [18][4]
   pars: [],     // [18]
   tips: [],     // [18] {nearpin,sunaichi,imo}
-  oly: []       // [18] {medals:{}, offGreen:[], goldOnePutt:bool}
+  oly: []       // [18] {medals:{}, offGreen:[]}
 };
 
 // 手入力で追加したコースを保存・読み込み（ブラウザに記憶）
@@ -174,7 +175,7 @@ for (var i=0;i<18;i++){
   S.tips.push({ nearpin:null, sunaichi:null, imo:null });
   var medals = {};
   OLY_MEDALS.forEach(function(m){ medals[m.key]=null; });
-  S.oly.push({ medals:medals, offGreen:[], goldOnePutt:false });
+  S.oly.push({ medals:medals, offGreen:[] });
 }
 applyCoursePars(S.courseId);
 
@@ -244,7 +245,7 @@ function computeTotals(){
   var pts=[0,0,0,0];
   for (var h=0; h<18; h++){
     var res = computeHole(h);
-    if (res){
+    if (res && S.vegasOn){
       res.sideNums[0].players.forEach(function(p){ pts[p] += -res.diff; });
       res.sideNums[1].players.forEach(function(p){ pts[p] += res.diff; });
     }
@@ -279,7 +280,6 @@ function computeTotals(){
       };
       OLY_MEDALS.forEach(function(m){ award(orow.medals[m.key], S.olyPts[m.key]); });
       orow.offGreen.forEach(function(p){ award(p, S.olyChipinPts.offGreen); });
-      if (orow.goldOnePutt) award(orow.medals.gold, S.olyChipinPts.onePutt);
       var allA = OLY_MEDALS.every(function(m){ return orow.medals[m.key]!=null; });
       if (allA) award(orow.medals.gold, S.olyBonus.allMedals);
       var allC = allA && OLY_MEDALS.every(function(m){ return orow.offGreen.indexOf(orow.medals[m.key])!==-1; });
@@ -296,7 +296,7 @@ function setScore(h,p,v){
 }
 function setOlyMedal(h,key,player){
   var m = S.oly[h].medals;
-  if (m[key]===player){ m[key]=null; if(key==="gold") S.oly[h].goldOnePutt=false; }
+  if (m[key]===player){ m[key]=null; }
   else {
     OLY_MEDALS.forEach(function(md){ if(m[md.key]===player) m[md.key]=null; });
     m[key]=player;
@@ -308,10 +308,6 @@ function toggleOffGreen(h,player){
   if (i===-1) arr.push(player); else arr.splice(i,1);
   render();
 }
-function toggleGoldOnePutt(h){
-  if (S.oly[h].medals.gold!=null) S.oly[h].goldOnePutt=!S.oly[h].goldOnePutt;
-  render();
-}
 function setTip(h,key,player){
   S.tips[h][key] = (S.tips[h][key]===player)?null:player; render();
 }
@@ -321,7 +317,7 @@ function resetAll(){
     S.scores[h]=["","","",""]; S.pars[h]=PAR_DEFAULT;
     S.tips[h]={nearpin:null,sunaichi:null,imo:null};
     var medals={}; OLY_MEDALS.forEach(function(m){medals[m.key]=null;});
-    S.oly[h]={medals:medals,offGreen:[],goldOnePutt:false};
+    S.oly[h]={medals:medals,offGreen:[]};
   }
   render();
 }
@@ -446,12 +442,16 @@ function render(){
   courseBox.appendChild(el("div",{class:"hint"},"コースを選ぶと各ホールのパーが入ります。スコア表のパー欄で個別に直すこともできます。"));
   setCard.appendChild(courseBox);
 
-  setCard.appendChild(toggle("数字は大きい順（4と5→54）","highFirst","オフなら 4と5→45"));
-  setCard.appendChild(toggle("バーディフリップ","flip","バーディが出た側は相手の数字を逆転"));
-  setCard.appendChild(toggle("点差を5単位で切り上げ","roundUp5","差1〜5→5、6〜10→10、11〜15→15…"));
-  setCard.appendChild(toggle("後半で組み合わせを仕切り直す","splitBack","10番から新しい打順で再スタート"));
+  setCard.appendChild(toggle("ベガス（チーム戦）を有効にする","vegasOn","オフにするとオリンピックやチップだけで使えます"));
+  if (S.vegasOn){
+    setCard.appendChild(toggle("数字は大きい順（4と5→54）","highFirst","オフなら 4と5→45"));
+    setCard.appendChild(toggle("バーディフリップ","flip","バーディが出た側は相手の数字を逆転"));
+    setCard.appendChild(toggle("点差を5単位で切り上げ","roundUp5","差1〜5→5、6〜10→10、11〜15→15…"));
+    setCard.appendChild(toggle("後半で組み合わせを仕切り直す","splitBack","10番から新しい打順で再スタート"));
+  }
   setCard.appendChild(toggle("チップ（バーディー等）を有効にする","tipOn","出した人が他の3人から受け取る"));
-  setCard.appendChild(toggle("オリンピックを有効にする","olyOn","ワンオンを最初に乗った位置の遠い順に金銀銅鉄"));
+  setCard.appendChild(toggle("オリンピックを有効にする","olyOn","ワンパットで沈めた人を遠い順に金銀銅鉄"));
+  if (S.vegasOn){
   setCard.appendChild(toggle("ハンディキャップを効かせる","hcpOn","各自のハーフごとのハンデ数を入力（上手い人は0）"));
   if (S.hcpOn){
     var hcpBox = el("div",{class:"settings-box"});
@@ -478,6 +478,7 @@ function render(){
     hcpBox.appendChild(el("div",{class:"hint"},"ハンデを受ける人は、そのハーフのHPが小さいホールから順に1打引いた『ネット』でベガスを計算します。例：前半3なら前半のHP1・2・3のホールで各1打。"));
     setCard.appendChild(hcpBox);
   }
+  } // end if vegasOn (hcp)
   setCard.appendChild(el("div",{class:"point-box"},[
     el("span",null,"1点あたり"),
     el("input",{type:"number", class:"num-input", value:S.pointValue, oninput:function(ev){ S.pointValue=parseInt(ev.target.value,10)||0; render(); }}),
@@ -512,13 +513,12 @@ function render(){
     olyBox.appendChild(or1);
     var or2 = el("div",{class:"pts-row", style:"margin-top:10px"});
     or2.appendChild(ptsField("グリーン外チップイン", function(){return S.olyChipinPts.offGreen;}, function(v){S.olyChipinPts.offGreen=v;}));
-    or2.appendChild(ptsField("金(最遠)が1パット", function(){return S.olyChipinPts.onePutt;}, function(v){S.olyChipinPts.onePutt=v;}));
     olyBox.appendChild(or2);
     var or3 = el("div",{class:"pts-row", style:"margin-top:10px"});
     or3.appendChild(ptsField("金銀銅鉄 揃いボーナス", function(){return S.olyBonus.allMedals;}, function(v){S.olyBonus.allMedals=v;}));
     or3.appendChild(ptsField("全チップイン ボーナス", function(){return S.olyBonus.allChipin;}, function(v){S.olyBonus.allChipin=v;}));
     olyBox.appendChild(or3);
-    olyBox.appendChild(el("div",{class:"hint"},"金銀銅鉄＝ワンオンした人を最初に乗った位置が遠い順に割当。グリーン外から直接入れたら⛳直入れ。金が最遠から1パットで沈めたら1パットをタップ。各賞とも取った人が他3人から受け取ります。"));
+    olyBox.appendChild(el("div",{class:"hint"},"ワンパットで沈めた人を、残り距離が遠い順に金・銀・銅・鉄でタップ。ワンパットがいなければ何も選びません。グリーン外から直接入れたら⛳直入れ。各賞とも取った人が他3人から受け取ります。"));
     setCard.appendChild(olyBox);
   }
 
@@ -573,7 +573,7 @@ function render(){
         tbody.appendChild(el("tr",{class:"divider"}, el("td",{colspan:7},"後半スタート — 打順 仕切り直し")));
       }
 
-      // ペア明示（緑チーム vs 赤チーム）
+      // ペア明示（緑チーム vs 赤チーム）※ベガスONのときのみ
       // pairing[0]=緑side, pairing[1]=赤side（seatインデックス）。seatMapで実プレーヤーへ
       var greenPlayers = pairing[0].map(function(si){ return seatMap[si]; });
       var redPlayers   = pairing[1].map(function(si){ return seatMap[si]; });
@@ -582,22 +582,25 @@ function render(){
         if (nm){ return nm.length>4 ? nm.slice(0,4) : nm; }
         return SEAT[p];
       };
-      var pairTd = el("td",{colspan:7, style:"text-align:left;padding:6px 6px 2px;font-size:12px;font-weight:700"},[
-        el("span",{style:"color:#1F6F4A"}, "緑 "+greenPlayers.map(shortName).join("＋")),
-        el("span",{style:"color:#aaa;font-weight:400"}, "  vs  "),
-        el("span",{style:"color:#9A3B52"}, "赤 "+redPlayers.map(shortName).join("＋"))
-      ]);
-      tbody.appendChild(el("tr", null, pairTd));
+      if (S.vegasOn){
+        var pairTd = el("td",{colspan:7, style:"text-align:left;padding:6px 6px 2px;font-size:12px;font-weight:700"},[
+          el("span",{style:"color:#1F6F4A"}, "緑 "+greenPlayers.map(shortName).join("＋")),
+          el("span",{style:"color:#aaa;font-weight:400"}, "  vs  "),
+          el("span",{style:"color:#9A3B52"}, "赤 "+redPlayers.map(shortName).join("＋"))
+        ]);
+        tbody.appendChild(el("tr", null, pairTd));
+      }
 
       var smRow = getStrokeMap();
       var scoreCells=[0,1,2,3].map(function(p){
         var seatIdx=seatMap.indexOf(p);
         var sideOf=-1;
         pairing.forEach(function(sp,si){ if(sp.indexOf(seatIdx)!==-1) sideOf=si; });
-        var hasStroke = S.hcpOn && smRow[p][h]>0;
+        var hasStroke = S.vegasOn && S.hcpOn && smRow[p][h]>0;
+        var bc = S.vegasOn ? (sideOf===0?"#1F6F4A":"#9A3B52") : "#ddd";
         var inputEl = el("input",{
           class:"score-input", inputmode:"numeric", value:S.scores[h][p],
-          style:"border-color:"+(sideOf===0?"#1F6F4A":"#9A3B52"),
+          style:"border-color:"+bc,
           oninput:(function(pp){return function(ev){ setScore(h,pp,ev.target.value); };})(p)
         });
         var cellChildren = [inputEl];
@@ -608,7 +611,9 @@ function render(){
       });
 
       var resCell;
-      if (res){
+      if (!S.vegasOn){
+        resCell = el("td",{class:"res", style:"color:#ccc"},"—");
+      } else if (res){
         var tag = res.diff===0?"±0":(res.diff<0?("緑+"+(-res.diff)):("赤+"+res.diff));
         resCell = el("td",{class:"res"},[
           el("b",{style:"color:#1F6F4A"}, String(res.sideNums[0].num)),
@@ -650,7 +655,7 @@ function render(){
       // オリンピック行
       if (S.olyOn){
         var olyTd = el("td",{colspan:7});
-        olyTd.appendChild(el("div",{class:"oly-line-label"},"オリンピック — 各人のメダル（最初に乗った位置が遠い順）"));
+        olyTd.appendChild(el("div",{class:"oly-line-label"},"オリンピック — ワンパットで沈めた人を遠い順に 金銀銅鉄（いなければ選ばない）"));
         [0,1,2,3].forEach(function(p){
           var line = el("div",{class:"oly-player-line"});
           line.appendChild(el("span",{class:"oly-chip", style:"background:"+SEAT_COLOR[SEAT[p]]}, SEAT[p]));
@@ -662,15 +667,6 @@ function render(){
               onclick:(function(mm,pp){return function(){ setOlyMedal(h,mm.key,pp); };})(m,p)
             }, m.label));
           });
-          // 金の人だけ1パット
-          if (S.oly[h].medals.gold===p){
-            var on=S.oly[h].goldOnePutt;
-            line.appendChild(el("button",{
-              class:"medal-btn",
-              style: on?"background:#C9A227;color:#fff;border-color:#C9A227":"",
-              onclick:function(){ toggleGoldOnePutt(h); }
-            },"1パット"));
-          }
           // グリーン外チップイン
           var og = S.oly[h].offGreen.indexOf(p)!==-1;
           line.appendChild(el("button",{
