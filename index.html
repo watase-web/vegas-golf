@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>ベガス計算機</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+  body {
+    font-family: 'Hiragino Kaku Gothic ProN','Yu Gothic',system-ui,sans-serif;
+    color: #1a1a1a; background: #F2EEE6; padding: 16px 12px 60px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .kicker { font-size: 11px; let-spacing: 3px; color: #9A3B52; font-weight: 700; letter-spacing: 3px; }
+  h1 { font-size: 30px; margin: 4px 0 2px; letter-spacing: 1px; }
+  .sub { font-size: 13px; color: #555; margin-bottom: 16px; }
+  .card { background: #fff; border-radius: 14px; padding: 16px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .card-label { font-size: 12px; font-weight: 700; letter-spacing: 1px; color: #888; margin-bottom: 10px; text-transform: uppercase; }
+  .player-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .seat-chip { width: 28px; height: 28px; border-radius: 50%; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+  .name-input { flex: 1; border: 1px solid #ddd; border-radius: 8px; padding: 8px 10px; font-size: 16px; }
+  .opt { display: flex; align-items: flex-start; gap: 10px; margin-top: 10px; }
+  .opt input[type=checkbox] { width: 18px; height: 18px; margin-top: 2px; flex-shrink: 0; }
+  .opt-label { font-size: 14px; font-weight: 600; display: block; }
+  .opt-hint { font-size: 11px; color: #999; display: block; }
+  .point-box { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .point-box span { font-size: 14px; color: #555; }
+  .num-input { width: 70px; border: 1px solid #ddd; border-radius: 8px; padding: 6px 8px; font-size: 16px; text-align: right; }
+  .settings-box { margin-top: 14px; padding-top: 14px; border-top: 1px dashed #ddd; }
+  .pts-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .pts-item { display: flex; align-items: center; gap: 4px; }
+  .pts-item span { font-size: 13px; color: #555; }
+  .pts-input { width: 48px; border: 1px solid #ddd; border-radius: 8px; padding: 5px 6px; font-size: 16px; text-align: right; }
+  .hint { font-size: 12px; color: #999; margin: 8px 0; line-height: 1.5; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { color: #888; font-weight: 700; padding: 4px; font-size: 12px; }
+  td { padding: 3px 2px; text-align: center; }
+  .hole-no { font-weight: 700; color: #555; }
+  .par-input { width: 32px; border: 1px solid #eee; border-radius: 6px; padding: 4px 0; text-align: center; font-size: 14px; color: #888; }
+  .score-input { width: 42px; border: 2px solid #ddd; border-radius: 8px; padding: 8px 0; text-align: center; font-size: 18px; font-weight: 600; }
+  .res { font-size: 14px; white-space: nowrap; }
+  .diff-tag { display: block; font-size: 11px; color: #888; font-weight: 600; margin-top: 2px; }
+  .sub-row td { padding: 4px 6px 10px; text-align: left; }
+  .grp { display: inline-flex; align-items: center; gap: 3px; margin-right: 10px; margin-top: 4px; }
+  .grp-label { font-size: 11px; color: #999; margin-right: 2px; }
+  .tip-btn { width: 26px; height: 26px; border-radius: 6px; border: 1px solid #ddd; background: #fff; color: #999; font-size: 12px; font-weight: 700; cursor: pointer; padding: 0; }
+  .oly-row td { padding: 6px 6px 10px; background: #FCFBF6; text-align: left; }
+  .oly-line-label { font-size: 11px; color: #999; margin-bottom: 4px; }
+  .oly-player-line { display: flex; align-items: center; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+  .medal-btn { min-width: 30px; height: 28px; border-radius: 7px; border: 1px solid #ddd; background: #fff; color: #aaa; font-size: 12px; font-weight: 700; cursor: pointer; padding: 0 6px; }
+  .oly-chip { width: 22px; height: 22px; border-radius: 50%; color: #fff; display: inline-grid; place-items: center; font-weight: 700; font-size: 12px; margin-right: 2px; }
+  .total-row { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-bottom: 1px solid #f2f2f2; }
+  .total-name { flex: 1; font-size: 15px; }
+  .total-pts { font-weight: 700; font-size: 15px; width: 64px; text-align: right; }
+  .total-yen { font-weight: 700; font-size: 15px; width: 96px; text-align: right; }
+  .foot { font-size: 11px; color: #aaa; margin-top: 12px; line-height: 1.6; }
+  .divider td { text-align: center; font-size: 11px; font-weight: 700; letter-spacing: 1px; color: #9A3B52; padding: 8px 0; background: #F8EFEF; }
+  .back-slot { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 130px; }
+  .back-slot span { font-size: 11px; color: #888; font-weight: 700; }
+  .back-slot select { border: 1px solid #ddd; border-radius: 8px; padding: 8px; font-size: 14px; }
+  .version { text-align: center; font-size: 11px; color: #aaa; padding: 10px; }
+  .reset-btn { margin-top: 10px; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 8px 14px; font-size: 13px; color: #9A3B52; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<div class="version" id="version"></div>
+
+<script>
+"use strict";
+var APP_VERSION = "v1.1 (2026-06-27)";
+
+// ── 定数 ──
+var SEAT = ["A","B","C","D"];
+var SEAT_COLOR = { A:"#1F6F4A", B:"#C7892C", C:"#3A5BA0", D:"#9A3B52" };
+var PAIR_PATTERNS = [ [[0,1],[2,3]], [[0,2],[1,3]], [[0,3],[1,2]] ];
+var PAR_DEFAULT = 4;
+var TIP_ITEMS = [
+  { key:"birdie", label:"バーディー", auto:true,  def:1 },
+  { key:"nearpin", label:"ニアピン",  auto:false, def:1 },
+  { key:"sunaichi",label:"砂一",      auto:false, def:1 },
+  { key:"imo",     label:"イモ",      auto:false, def:1, negative:true }
+];
+var OLY_MEDALS = [
+  { key:"gold",  label:"金", color:"#C9A227", def:5 },
+  { key:"silver",label:"銀", color:"#9098A1", def:4 },
+  { key:"bronze",label:"銅", color:"#A9712E", def:3 },
+  { key:"iron",  label:"鉄", color:"#5B6066", def:2 }
+];
+
+function pairingForHole(holeNo, splitBack) {
+  var local = (splitBack && holeNo >= 10) ? (holeNo - 10) : (holeNo - 1);
+  var block = Math.floor(local / 3) % 3;
+  return PAIR_PATTERNS[block];
+}
+function vegasNumber(s1, s2, highFirst) {
+  var lo = Math.min(s1,s2), hi = Math.max(s1,s2);
+  return highFirst ? (hi*10+lo) : (lo*10+hi);
+}
+
+// ── 状態 ──
+var S = {
+  names: ["","","",""],
+  pointValue: 100,
+  highFirst: false,
+  flip: false,
+  roundUp5: false,
+  splitBack: false,
+  backOrder: [0,1,2,3],
+  tipOn: true,
+  olyOn: true,
+  tipPts: {}, 
+  olyPts: {},
+  olyChipinPts: { offGreen:5, onePutt:4 },
+  olyBonus: { allMedals:3, allChipin:10 },
+  scores: [],   // [18][4]
+  pars: [],     // [18]
+  tips: [],     // [18] {nearpin,sunaichi,imo}
+  oly: []       // [18] {medals:{}, offGreen:[], goldOnePutt:bool}
+};
+TIP_ITEMS.forEach(function(t){ S.tipPts[t.key] = t.def; });
+OLY_MEDALS.forEach(function(m){ S.olyPts[m.key] = m.def; });
+for (var i=0;i<18;i++){
+  S.scores.push(["","","",""]);
+  S.pars.push(PAR_DEFAULT);
+  S.tips.push({ nearpin:null, sunaichi:null, imo:null });
+  var medals = {};
+  OLY_MEDALS.forEach(function(m){ medals[m.key]=null; });
+  S.oly.push({ medals:medals, offGreen:[], goldOnePutt:false });
+}
+
+function seatPlayersForHole(holeNo){
+  if (S.splitBack && holeNo >= 10) return S.backOrder;
+  return [0,1,2,3];
+}
+
+// 1ホールのベガス計算
+function computeHole(h){
+  var holeNo = h+1;
+  var row = S.scores[h];
+  for (var k=0;k<4;k++){ if (row[k]==="" || row[k]==null) return null; }
+  var seatMap = seatPlayersForHole(holeNo);
+  var pairing = pairingForHole(holeNo, S.splitBack);
+  var par = S.pars[h];
+  var sides = pairing.map(function(sp){ return sp.map(function(si){ return seatMap[si]; }); });
+  var sideNums = sides.map(function(pl){
+    var s1=row[pl[0]], s2=row[pl[1]];
+    return { players:pl, num:vegasNumber(s1,s2,S.highFirst), s1:s1, s2:s2 };
+  });
+  if (S.flip){
+    var hasBirdie = sides.map(function(pl){ return pl.some(function(p){ return row[p] <= par-1; }); });
+    sideNums.forEach(function(sn,idx){
+      var opp = idx===0?1:0;
+      if (hasBirdie[opp]) sn.num = vegasNumber(sn.s1, sn.s2, !S.highFirst);
+    });
+  }
+  var diff = sideNums[0].num - sideNums[1].num;
+  if (S.roundUp5 && diff!==0){
+    var sign = diff<0?-1:1;
+    diff = sign * Math.ceil(Math.abs(diff)/5) * 5;
+  }
+  return { sideNums:sideNums, diff:diff, par:par, holeNo:holeNo };
+}
+
+// 全体集計
+function computeTotals(){
+  var pts=[0,0,0,0];
+  for (var h=0; h<18; h++){
+    var res = computeHole(h);
+    if (res){
+      res.sideNums[0].players.forEach(function(p){ pts[p] += -res.diff; });
+      res.sideNums[1].players.forEach(function(p){ pts[p] += res.diff; });
+    }
+    if (S.tipOn){
+      var par = S.pars[h], row = S.scores[h];
+      var filled = true;
+      for (var k=0;k<4;k++){ if (row[k]===""||row[k]==null) filled=false; }
+      if (filled){
+        row.forEach(function(v,p){
+          if (v <= par-1){
+            pts[p] += S.tipPts.birdie*3;
+            [0,1,2,3].forEach(function(q){ if(q!==p) pts[q]-=S.tipPts.birdie; });
+          }
+        });
+      }
+      ["nearpin","sunaichi","imo"].forEach(function(key){
+        var w = S.tips[h][key];
+        if (w!=null){
+          var neg = TIP_ITEMS.filter(function(t){return t.key===key;})[0].negative;
+          var sign = neg?-1:1;
+          pts[w] += sign*S.tipPts[key]*3;
+          [0,1,2,3].forEach(function(q){ if(q!==w) pts[q]-=sign*S.tipPts[key]; });
+        }
+      });
+    }
+    if (S.olyOn){
+      var orow = S.oly[h];
+      var award = function(w,pt){
+        if (w==null||!pt) return;
+        pts[w]+=pt*3;
+        [0,1,2,3].forEach(function(q){ if(q!==w) pts[q]-=pt; });
+      };
+      OLY_MEDALS.forEach(function(m){ award(orow.medals[m.key], S.olyPts[m.key]); });
+      orow.offGreen.forEach(function(p){ award(p, S.olyChipinPts.offGreen); });
+      if (orow.goldOnePutt) award(orow.medals.gold, S.olyChipinPts.onePutt);
+      var allA = OLY_MEDALS.every(function(m){ return orow.medals[m.key]!=null; });
+      if (
