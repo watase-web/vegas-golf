@@ -204,4 +204,323 @@ function computeTotals(){
       orow.offGreen.forEach(function(p){ award(p, S.olyChipinPts.offGreen); });
       if (orow.goldOnePutt) award(orow.medals.gold, S.olyChipinPts.onePutt);
       var allA = OLY_MEDALS.every(function(m){ return orow.medals[m.key]!=null; });
-      if (
+      if (allA) award(orow.medals.gold, S.olyBonus.allMedals);
+      var allC = allA && OLY_MEDALS.every(function(m){ return orow.offGreen.indexOf(orow.medals[m.key])!==-1; });
+      if (allC) award(orow.medals.gold, S.olyBonus.allChipin);
+    }
+  }
+  return pts;
+}
+
+// ── 操作 ──
+function setScore(h,p,v){
+  var n = v===""? "" : Math.max(1, parseInt(v,10)||0);
+  S.scores[h][p]=n; render();
+}
+function setOlyMedal(h,key,player){
+  var m = S.oly[h].medals;
+  if (m[key]===player){ m[key]=null; if(key==="gold") S.oly[h].goldOnePutt=false; }
+  else {
+    OLY_MEDALS.forEach(function(md){ if(m[md.key]===player) m[md.key]=null; });
+    m[key]=player;
+  }
+  render();
+}
+function toggleOffGreen(h,player){
+  var arr=S.oly[h].offGreen; var i=arr.indexOf(player);
+  if (i===-1) arr.push(player); else arr.splice(i,1);
+  render();
+}
+function toggleGoldOnePutt(h){
+  if (S.oly[h].medals.gold!=null) S.oly[h].goldOnePutt=!S.oly[h].goldOnePutt;
+  render();
+}
+function setTip(h,key,player){
+  S.tips[h][key] = (S.tips[h][key]===player)?null:player; render();
+}
+function resetAll(){
+  if (!confirm("全スコアと記録をリセットします。よろしいですか？")) return;
+  for (var h=0;h<18;h++){
+    S.scores[h]=["","","",""]; S.pars[h]=PAR_DEFAULT;
+    S.tips[h]={nearpin:null,sunaichi:null,imo:null};
+    var medals={}; OLY_MEDALS.forEach(function(m){medals[m.key]=null;});
+    S.oly[h]={medals:medals,offGreen:[],goldOnePutt:false};
+  }
+  render();
+}
+
+function dispName(i){ return S.names[i] || (SEAT[i]+" ("+(i+1)+"番手)"); }
+
+// ── 描画ヘルパ ──
+function el(tag, attrs, children){
+  var e = document.createElement(tag);
+  if (attrs) for (var k in attrs){
+    if (k==="class") e.className=attrs[k];
+    else if (k==="style") e.style.cssText=attrs[k];
+    else if (k.slice(0,2)==="on") e.addEventListener(k.slice(2).toLowerCase(), attrs[k]);
+    else if (k==="value") e.value=attrs[k];
+    else if (k==="checked") { if(attrs[k]) e.setAttribute("checked","checked"); e.checked=attrs[k]; }
+    else e.setAttribute(k, attrs[k]);
+  }
+  if (children!=null){
+    (Array.isArray(children)?children:[children]).forEach(function(c){
+      if (c==null||c===false) return;
+      e.appendChild(typeof c==="string"||typeof c==="number"?document.createTextNode(String(c)):c);
+    });
+  }
+  return e;
+}
+function toggle(label, key, hint){
+  return el("label",{class:"opt"},[
+    el("input",{type:"checkbox", checked:S[key], onchange:function(ev){ S[key]=ev.target.checked; render(); }}),
+    el("span",null,[ el("span",{class:"opt-label"},label), hint?el("span",{class:"opt-hint"},hint):null ])
+  ]);
+}
+function ptsField(label, getv, setv){
+  return el("div",{class:"pts-item"},[
+    el("span",null,label),
+    el("input",{type:"number", class:"pts-input", value:getv(), oninput:function(ev){ setv(parseInt(ev.target.value,10)||0); render(); }}),
+    el("span",null,"点")
+  ]);
+}
+
+// ── メイン描画 ──
+function render(){
+  var app = document.getElementById("app");
+  app.innerHTML="";
+  document.getElementById("version").textContent = "ベガス計算機 "+APP_VERSION;
+
+  // ヘッダ
+  app.appendChild(el("div",null,[
+    el("div",{class:"kicker"},"LAS VEGAS · チーム戦スコア"),
+    el("h1",null,"ベガス計算機"),
+    el("div",{class:"sub"},"3ホールごとにペアが入れ替わる集計アプリ")
+  ]));
+
+  // 設定カード
+  var setCard = el("div",{class:"card"});
+  setCard.appendChild(el("div",{class:"card-label"},"プレーヤー（前半の打順）"));
+  SEAT.forEach(function(s,i){
+    setCard.appendChild(el("div",{class:"player-row"},[
+      el("span",{class:"seat-chip", style:"background:"+SEAT_COLOR[s]}, s),
+      el("input",{class:"name-input", value:S.names[i], placeholder:(i+1)+"番手の名前",
+        oninput:function(ev){ S.names[i]=ev.target.value; }})
+    ]));
+  });
+  setCard.appendChild(toggle("数字は大きい順（4と5→54）","highFirst","オフなら 4と5→45"));
+  setCard.appendChild(toggle("バーディフリップ","flip","バーディが出た側は相手の数字を逆転"));
+  setCard.appendChild(toggle("点差を5単位で切り上げ","roundUp5","差1〜5→5、6〜10→10、11〜15→15…"));
+  setCard.appendChild(toggle("後半で組み合わせを仕切り直す","splitBack","10番から新しい打順で再スタート"));
+  setCard.appendChild(toggle("チップ（バーディー等）を有効にする","tipOn","出した人が他の3人から受け取る"));
+  setCard.appendChild(toggle("オリンピックを有効にする","olyOn","ワンオンを最初に乗った位置の遠い順に金銀銅鉄"));
+  setCard.appendChild(el("div",{class:"point-box"},[
+    el("span",null,"1点あたり"),
+    el("input",{type:"number", class:"num-input", value:S.pointValue, oninput:function(ev){ S.pointValue=parseInt(ev.target.value,10)||0; render(); }}),
+    el("span",null,"円")
+  ]));
+
+  // チップ点数設定
+  if (S.tipOn){
+    var tipBox = el("div",{class:"settings-box"});
+    tipBox.appendChild(el("div",{class:"card-label"},"チップの点数（1口あたり）"));
+    var tr = el("div",{class:"pts-row"});
+    TIP_ITEMS.forEach(function(t){
+      tr.appendChild(ptsField(t.label, function(){return S.tipPts[t.key];}, function(v){S.tipPts[t.key]=v;}));
+    });
+    tipBox.appendChild(tr);
+    tipBox.appendChild(el("div",{class:"hint"},"バーディーはスコアから自動判定。ニアピン・砂一は表でタップ。イモは罰として本人が他3人へ支払います。"));
+    setCard.appendChild(tipBox);
+  }
+
+  // オリンピック設定
+  if (S.olyOn){
+    var olyBox = el("div",{class:"settings-box"});
+    olyBox.appendChild(el("div",{class:"card-label"},"オリンピックの点数（1口あたり）"));
+    var or1 = el("div",{class:"pts-row"});
+    OLY_MEDALS.forEach(function(m){
+      or1.appendChild(el("div",{class:"pts-item"},[
+        el("span",{class:"oly-chip", style:"background:"+m.color}, m.label),
+        el("input",{type:"number", class:"pts-input", value:S.olyPts[m.key], oninput:(function(mm){return function(ev){ S.olyPts[mm.key]=parseInt(ev.target.value,10)||0; render(); };})(m)}),
+        el("span",null,"点")
+      ]));
+    });
+    olyBox.appendChild(or1);
+    var or2 = el("div",{class:"pts-row", style:"margin-top:10px"});
+    or2.appendChild(ptsField("グリーン外チップイン", function(){return S.olyChipinPts.offGreen;}, function(v){S.olyChipinPts.offGreen=v;}));
+    or2.appendChild(ptsField("金(最遠)が1パット", function(){return S.olyChipinPts.onePutt;}, function(v){S.olyChipinPts.onePutt=v;}));
+    olyBox.appendChild(or2);
+    var or3 = el("div",{class:"pts-row", style:"margin-top:10px"});
+    or3.appendChild(ptsField("金銀銅鉄 揃いボーナス", function(){return S.olyBonus.allMedals;}, function(v){S.olyBonus.allMedals=v;}));
+    or3.appendChild(ptsField("全チップイン ボーナス", function(){return S.olyBonus.allChipin;}, function(v){S.olyBonus.allChipin=v;}));
+    olyBox.appendChild(or3);
+    olyBox.appendChild(el("div",{class:"hint"},"金銀銅鉄＝ワンオンした人を最初に乗った位置が遠い順に割当。グリーン外から直接入れたら⛳直入れ。金が最遠から1パットで沈めたら1パットをタップ。各賞とも取った人が他3人から受け取ります。"));
+    setCard.appendChild(olyBox);
+  }
+
+  // 後半打順
+  if (S.splitBack){
+    var bo = el("div",{class:"settings-box"});
+    bo.appendChild(el("div",{class:"card-label"},"後半（10番〜）の打順"));
+    bo.appendChild(el("div",{class:"hint"},"後半1番手→2番手→…の順に、誰が打つか選んでください"));
+    var bor = el("div",{class:"pts-row"});
+    [0,1,2,3].forEach(function(slot){
+      var sel = el("select",{ onchange:(function(sl){return function(ev){
+        var v=parseInt(ev.target.value,10);
+        var old=S.backOrder[sl]; var swapAt=S.backOrder.indexOf(v);
+        S.backOrder[sl]=v; if(swapAt!==-1) S.backOrder[swapAt]=old;
+        render();
+      };})(slot)});
+      [0,1,2,3].forEach(function(pi){
+        var o=el("option",{value:pi}, dispName(pi));
+        if (S.backOrder[slot]===pi) o.selected=true;
+        sel.appendChild(o);
+      });
+      bor.appendChild(el("div",{class:"back-slot"},[ el("span",null,(slot+1)+"番手"), sel ]));
+    });
+    bo.appendChild(bor);
+    setCard.appendChild(bo);
+  }
+  app.appendChild(setCard);
+
+  // スコア表
+  var scCard = el("div",{class:"card"});
+  scCard.appendChild(el("div",{class:"card-label"},"スコア入力"));
+  var table = el("table");
+  var thead = el("tr",null,[
+    el("th",null,"H"), el("th",null,"Par"),
+    el("th",null,el("span",{class:"oly-chip",style:"background:"+SEAT_COLOR.A},"A")),
+    el("th",null,el("span",{class:"oly-chip",style:"background:"+SEAT_COLOR.B},"B")),
+    el("th",null,el("span",{class:"oly-chip",style:"background:"+SEAT_COLOR.C},"C")),
+    el("th",null,el("span",{class:"oly-chip",style:"background:"+SEAT_COLOR.D},"D")),
+    el("th",null,"ペア / 差")
+  ]);
+  table.appendChild(el("thead",null,thead));
+  var tbody = el("tbody");
+
+  for (var h=0; h<18; h++){
+    (function(h){
+      var holeNo=h+1;
+      var res=computeHole(h);
+      var pairing=pairingForHole(holeNo,S.splitBack);
+      var seatMap=seatPlayersForHole(holeNo);
+
+      if (S.splitBack && holeNo===10){
+        tbody.appendChild(el("tr",{class:"divider"}, el("td",{colspan:7},"後半スタート — 打順 仕切り直し")));
+      }
+
+      var scoreCells=[0,1,2,3].map(function(p){
+        var seatIdx=seatMap.indexOf(p);
+        var sideOf=-1;
+        pairing.forEach(function(sp,si){ if(sp.indexOf(seatIdx)!==-1) sideOf=si; });
+        return el("td",null, el("input",{
+          class:"score-input", inputmode:"numeric", value:S.scores[h][p],
+          style:"border-color:"+(sideOf===0?"#1F6F4A":"#9A3B52"),
+          oninput:(function(pp){return function(ev){ setScore(h,pp,ev.target.value); };})(p)
+        }));
+      });
+
+      var resCell;
+      if (res){
+        var tag = res.diff===0?"±0":(res.diff<0?("緑+"+(-res.diff)):("赤+"+res.diff));
+        resCell = el("td",{class:"res"},[
+          el("b",{style:"color:#1F6F4A"}, String(res.sideNums[0].num)),
+          document.createTextNode(" : "),
+          el("b",{style:"color:#9A3B52"}, String(res.sideNums[1].num)),
+          el("span",{class:"diff-tag"}, tag)
+        ]);
+      } else {
+        resCell = el("td",{class:"res", style:"color:#ccc"},"—");
+      }
+
+      tbody.appendChild(el("tr",null,[
+        el("td",{class:"hole-no"}, String(holeNo)),
+        el("td",null, el("input",{class:"par-input", value:S.pars[h], oninput:function(ev){ S.pars[h]=parseInt(ev.target.value,10)||PAR_DEFAULT; render(); }})),
+        scoreCells[0],scoreCells[1],scoreCells[2],scoreCells[3],
+        resCell
+      ]));
+
+      // チップ行
+      if (S.tipOn){
+        var tipTd = el("td",{colspan:7});
+        ["nearpin","sunaichi","imo"].forEach(function(key){
+          var item = TIP_ITEMS.filter(function(t){return t.key===key;})[0];
+          var grp = el("span",{class:"grp"});
+          grp.appendChild(el("span",{class:"grp-label", style: item.negative?"color:#9A3B52;font-weight:700":""}, item.label+(item.negative?"(罰)":"")));
+          [0,1,2,3].forEach(function(p){
+            var active = S.tips[h][key]===p;
+            grp.appendChild(el("button",{
+              class:"tip-btn",
+              style: active?("background:"+SEAT_COLOR[SEAT[p]]+";color:#fff;border-color:"+SEAT_COLOR[SEAT[p]]):"",
+              onclick:(function(kk,pp){return function(){ setTip(h,kk,pp); };})(key,p)
+            }, SEAT[p]));
+          });
+          tipTd.appendChild(grp);
+        });
+        tbody.appendChild(el("tr",{class:"sub-row"}, tipTd));
+      }
+
+      // オリンピック行
+      if (S.olyOn){
+        var olyTd = el("td",{colspan:7});
+        olyTd.appendChild(el("div",{class:"oly-line-label"},"オリンピック — 各人のメダル（最初に乗った位置が遠い順）"));
+        [0,1,2,3].forEach(function(p){
+          var line = el("div",{class:"oly-player-line"});
+          line.appendChild(el("span",{class:"oly-chip", style:"background:"+SEAT_COLOR[SEAT[p]]}, SEAT[p]));
+          OLY_MEDALS.forEach(function(m){
+            var active = S.oly[h].medals[m.key]===p;
+            line.appendChild(el("button",{
+              class:"medal-btn",
+              style: active?("background:"+m.color+";color:#fff;border-color:"+m.color):"",
+              onclick:(function(mm,pp){return function(){ setOlyMedal(h,mm.key,pp); };})(m,p)
+            }, m.label));
+          });
+          // 金の人だけ1パット
+          if (S.oly[h].medals.gold===p){
+            var on=S.oly[h].goldOnePutt;
+            line.appendChild(el("button",{
+              class:"medal-btn",
+              style: on?"background:#C9A227;color:#fff;border-color:#C9A227":"",
+              onclick:function(){ toggleGoldOnePutt(h); }
+            },"1パット"));
+          }
+          // グリーン外チップイン
+          var og = S.oly[h].offGreen.indexOf(p)!==-1;
+          line.appendChild(el("button",{
+            class:"medal-btn",
+            style: og?"background:#1F6F4A;color:#fff;border-color:#1F6F4A":"",
+            onclick:(function(pp){return function(){ toggleOffGreen(h,pp); };})(p)
+          },"⛳直入れ"));
+          olyTd.appendChild(line);
+        });
+        tbody.appendChild(el("tr",{class:"oly-row"}, olyTd));
+      }
+    })(h);
+  }
+  table.appendChild(tbody);
+  scCard.appendChild(table);
+  app.appendChild(scCard);
+
+  // 精算
+  var totals = computeTotals();
+  var sumCard = el("div",{class:"card"});
+  sumCard.appendChild(el("div",{class:"card-label"},"精算"));
+  [0,1,2,3].forEach(function(i){
+    var pt=totals[i], yen=pt*S.pointValue;
+    var col = pt>0?"#1F6F4A":(pt<0?"#9A3B52":"#777");
+    var ycol = yen>0?"#1F6F4A":(yen<0?"#9A3B52":"#777");
+    sumCard.appendChild(el("div",{class:"total-row"},[
+      el("span",{class:"seat-chip", style:"background:"+SEAT_COLOR[SEAT[i]]}, SEAT[i]),
+      el("span",{class:"total-name"}, dispName(i)),
+      el("span",{class:"total-pts", style:"color:"+col}, (pt>0?"+":"")+pt+"点"),
+      el("span",{class:"total-yen", style:"color:"+ycol}, (yen>0?"+":"")+yen.toLocaleString()+"円")
+    ]));
+  });
+  sumCard.appendChild(el("div",{class:"foot"},"点数が小さいサイドの勝ち。差の点数を負けサイドの各人が勝ちサイドの各人へ支払います。全項目を合算して常にゼロサムになります。"));
+  sumCard.appendChild(el("button",{class:"reset-btn", onclick:resetAll},"全リセット"));
+  app.appendChild(sumCard);
+}
+
+render();
+</script>
+</body>
+</html>
