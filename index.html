@@ -60,6 +60,14 @@
   .back-slot select { border: 1px solid #ddd; border-radius: 8px; padding: 8px; font-size: 14px; }
   .version { text-align: center; font-size: 11px; color: #aaa; padding: 10px; }
   .reset-btn { margin-top: 10px; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 8px 14px; font-size: 13px; color: #9A3B52; cursor: pointer; }
+  .stepper { display: inline-flex; align-items: center; gap: 0; }
+  .step-btn { width: 40px; height: 40px; border: 1px solid #ccc; background: #fff; font-size: 22px; font-weight: 700; color: #1F6F4A; cursor: pointer; padding: 0; line-height: 1; }
+  .step-btn:first-child { border-radius: 8px 0 0 8px; }
+  .step-btn:last-child { border-radius: 0 8px 8px 0; }
+  .step-val { min-width: 40px; height: 40px; border-top: 1px solid #ccc; border-bottom: 1px solid #ccc; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; }
+  .hcp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .hcp-half { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .hcp-half-label { font-size: 11px; color: #888; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -68,13 +76,23 @@
 
 <script>
 "use strict";
-var APP_VERSION = "v1.1 (2026-06-27)";
+var APP_VERSION = "v1.5 (2026-06-27)";
 
 // ── 定数 ──
 var SEAT = ["A","B","C","D"];
 var SEAT_COLOR = { A:"#1F6F4A", B:"#C7892C", C:"#3A5BA0", D:"#9A3B52" };
 var PAIR_PATTERNS = [ [[0,1],[2,3]], [[0,2],[1,3]], [[0,3],[1,2]] ];
 var PAR_DEFAULT = 4;
+
+// コースのパー配列（1〜18番）。宝塚は公式コースガイドより。
+var COURSE_PRESETS = [
+  { id:"takarazuka_old", name:"宝塚ゴルフ倶楽部（旧）",
+    pars:[4,3,4,5,5,3,4,3,4, 3,4,3,4,5,4,3,5,4],   // 計70
+    hp:  [9,13,1,7,5,17,3,15,11, 14,6,18,10,4,2,16,8,12] },
+  { id:"takarazuka_new", name:"宝塚ゴルフ倶楽部（新）",
+    pars:[5,4,3,5,4,4,3,4,4, 5,4,3,4,4,3,4,5,4],    // 計72
+    hp:  [7,13,15,3,9,1,17,5,11, 14,10,18,6,2,16,4,12,8] }
+];
 var TIP_ITEMS = [
   { key:"birdie", label:"バーディー", auto:true,  def:1 },
   { key:"nearpin", label:"ニアピン",  auto:false, def:1 },
@@ -109,6 +127,11 @@ var S = {
   backOrder: [0,1,2,3],
   tipOn: true,
   olyOn: true,
+  courseId: "takarazuka_old",  // 既定コース
+  hcpOn: false,                // ハンディキャップ機能
+  hcpFront: [0,0,0,0],         // 各自の前半ハンデ数
+  hcpBack:  [0,0,0,0],         // 各自の後半ハンデ数
+  hp: [],                      // 現在コースのHP配列(1〜18)
   tipPts: {}, 
   olyPts: {},
   olyChipinPts: { offGreen:5, onePutt:4 },
@@ -118,6 +141,31 @@ var S = {
   tips: [],     // [18] {nearpin,sunaichi,imo}
   oly: []       // [18] {medals:{}, offGreen:[], goldOnePutt:bool}
 };
+
+// 手入力で追加したコースを保存・読み込み（ブラウザに記憶）
+function loadCustomCourses(){
+  try { return JSON.parse(localStorage.getItem("vegas_custom_courses")||"[]"); }
+  catch(e){ return []; }
+}
+function saveCustomCourses(list){
+  try { localStorage.setItem("vegas_custom_courses", JSON.stringify(list)); } catch(e){}
+}
+var CUSTOM_COURSES = loadCustomCourses();
+
+function allCourses(){ return COURSE_PRESETS.concat(CUSTOM_COURSES); }
+function findCourse(id){
+  var all = allCourses();
+  for (var i=0;i<all.length;i++){ if (all[i].id===id) return all[i]; }
+  return null;
+}
+function applyCoursePars(id){
+  var c = findCourse(id);
+  if (c && c.pars && c.pars.length===18){
+    for (var h=0; h<18; h++){ S.pars[h] = c.pars[h]; }
+  }
+  // HP（ホールハンディ）。無いコースは18通しの仮データ（パー難易度ではなく順番）
+  S.hp = (c && c.hp && c.hp.length===18) ? c.hp.slice() : null;
+}
 TIP_ITEMS.forEach(function(t){ S.tipPts[t.key] = t.def; });
 OLY_MEDALS.forEach(function(m){ S.olyPts[m.key] = m.def; });
 for (var i=0;i<18;i++){
@@ -128,13 +176,39 @@ for (var i=0;i<18;i++){
   OLY_MEDALS.forEach(function(m){ medals[m.key]=null; });
   S.oly.push({ medals:medals, offGreen:[], goldOnePutt:false });
 }
+applyCoursePars(S.courseId);
 
 function seatPlayersForHole(holeNo){
   if (S.splitBack && holeNo >= 10) return S.backOrder;
   return [0,1,2,3];
 }
 
-// 1ホールのベガス計算
+// 各プレーヤーが各ホールで受けるハンデ打数を計算（前半・後半それぞれ HP の小さい順）
+// 返り値: strokeMap[player][holeIdx] = 0 or 1
+function computeStrokeMap(){
+  var map = [[],[],[],[]];
+  for (var p=0;p<4;p++){ for (var h=0;h<18;h++){ map[p][h]=0; } }
+  if (!S.hcpOn || !S.hp) return map;
+  // 前半(0-8)と後半(9-17)で別々に配分
+  var halves = [ {holes:[0,1,2,3,4,5,6,7,8], hcp:S.hcpFront},
+                 {holes:[9,10,11,12,13,14,15,16,17], hcp:S.hcpBack} ];
+  halves.forEach(function(half){
+    // そのハーフのホールを HP 昇順に並べる
+    var sorted = half.holes.slice().sort(function(a,b){ return S.hp[a]-S.hp[b]; });
+    for (var p=0;p<4;p++){
+      var n = half.hcp[p]||0;
+      for (var k=0; k<n && k<sorted.length; k++){
+        map[p][sorted[k]] = 1;
+      }
+    }
+  });
+  return map;
+}
+
+// 1ホールのベガス計算（hcpを効かせたネットスコアで数字を作る）
+var _strokeMapCache = null;
+function getStrokeMap(){ if(!_strokeMapCache) _strokeMapCache = computeStrokeMap(); return _strokeMapCache; }
+
 function computeHole(h){
   var holeNo = h+1;
   var row = S.scores[h];
@@ -142,13 +216,16 @@ function computeHole(h){
   var seatMap = seatPlayersForHole(holeNo);
   var pairing = pairingForHole(holeNo, S.splitBack);
   var par = S.pars[h];
+  var sm = getStrokeMap();
+  // ネットスコア（ハンデ打数を引く。最低1）
+  var net = [0,1,2,3].map(function(p){ return Math.max(1, row[p] - sm[p][h]); });
   var sides = pairing.map(function(sp){ return sp.map(function(si){ return seatMap[si]; }); });
   var sideNums = sides.map(function(pl){
-    var s1=row[pl[0]], s2=row[pl[1]];
+    var s1=net[pl[0]], s2=net[pl[1]];
     return { players:pl, num:vegasNumber(s1,s2,S.highFirst), s1:s1, s2:s2 };
   });
   if (S.flip){
-    var hasBirdie = sides.map(function(pl){ return pl.some(function(p){ return row[p] <= par-1; }); });
+    var hasBirdie = sides.map(function(pl){ return pl.some(function(p){ return net[p] <= par-1; }); });
     sideNums.forEach(function(sn,idx){
       var opp = idx===0?1:0;
       if (hasBirdie[opp]) sn.num = vegasNumber(sn.s1, sn.s2, !S.highFirst);
@@ -251,6 +328,30 @@ function resetAll(){
 
 function dispName(i){ return S.names[i] || (SEAT[i]+" ("+(i+1)+"番手)"); }
 
+// 新しいゴルフ場を手入力で登録
+function addCustomCourse(){
+  var name = prompt("ゴルフ場名を入力してください（例：芦屋カンツリー）");
+  if (!name){ render(); return; }
+  var def = "4,4,4,3,5,4,3,4,4,4,4,4,3,5,4,3,4,4";
+  var input = prompt(
+    "1番〜18番のパーを、カンマ区切りで18個入力してください。\n例）" + def,
+    def
+  );
+  if (!input){ render(); return; }
+  var parts = input.split(/[,\s、]+/).map(function(x){ return parseInt(x,10); }).filter(function(x){ return !isNaN(x); });
+  if (parts.length !== 18){
+    alert("パーは18個必要です。入力された数: " + parts.length + "個。もう一度お試しください。");
+    render(); return;
+  }
+  var id = "custom_" + Date.now();
+  var course = { id:id, name:name + "（手入力）", pars:parts };
+  CUSTOM_COURSES.push(course);
+  saveCustomCourses(CUSTOM_COURSES);
+  S.courseId = id;
+  applyCoursePars(id);
+  render();
+}
+
 // ── 描画ヘルパ ──
 function el(tag, attrs, children){
   var e = document.createElement(tag);
@@ -276,6 +377,19 @@ function toggle(label, key, hint){
     el("span",null,[ el("span",{class:"opt-label"},label), hint?el("span",{class:"opt-hint"},hint):null ])
   ]);
 }
+// −/＋ で増減するステッパー（min..max）
+function stepper(getv, setv, min, max){
+  var box = el("div",{class:"stepper"});
+  var minus = el("button",{class:"step-btn", onclick:function(){
+    var v=getv(); if(v>min){ setv(v-1); render(); }
+  }},"−");
+  var val = el("span",{class:"step-val"}, String(getv()));
+  var plus = el("button",{class:"step-btn", onclick:function(){
+    var v=getv(); if(v<max){ setv(v+1); render(); }
+  }},"＋");
+  box.appendChild(minus); box.appendChild(val); box.appendChild(plus);
+  return box;
+}
 function ptsField(label, getv, setv){
   return el("div",{class:"pts-item"},[
     el("span",null,label),
@@ -286,6 +400,7 @@ function ptsField(label, getv, setv){
 
 // ── メイン描画 ──
 function render(){
+  _strokeMapCache = null;  // ハンデ設定変更を反映
   var app = document.getElementById("app");
   app.innerHTML="";
   document.getElementById("version").textContent = "ベガス計算機 "+APP_VERSION;
@@ -307,12 +422,62 @@ function render(){
         oninput:function(ev){ S.names[i]=ev.target.value; }})
     ]));
   });
+
+  // コース選択
+  var courseBox = el("div",{class:"settings-box"});
+  courseBox.appendChild(el("div",{class:"card-label"},"コース（各ホールのパー）"));
+  var sel = el("select",{ style:"width:100%;border:1px solid #ddd;border-radius:8px;padding:10px;font-size:15px;",
+    onchange:function(ev){
+      var v = ev.target.value;
+      if (v==="__add__"){ addCustomCourse(); return; }
+      S.courseId = v; applyCoursePars(v); render();
+    }});
+  allCourses().forEach(function(c){
+    var o = el("option",{value:c.id}, c.name);
+    if (S.courseId===c.id) o.selected=true;
+    sel.appendChild(o);
+  });
+  // 手入力（カスタム）
+  var optCustom = el("option",{value:"__custom__"}, "手入力（下のパー欄で調整）");
+  if (S.courseId==="__custom__") optCustom.selected=true;
+  sel.appendChild(optCustom);
+  sel.appendChild(el("option",{value:"__add__"}, "＋ 新しいゴルフ場を登録…"));
+  courseBox.appendChild(sel);
+  courseBox.appendChild(el("div",{class:"hint"},"コースを選ぶと各ホールのパーが入ります。スコア表のパー欄で個別に直すこともできます。"));
+  setCard.appendChild(courseBox);
+
   setCard.appendChild(toggle("数字は大きい順（4と5→54）","highFirst","オフなら 4と5→45"));
   setCard.appendChild(toggle("バーディフリップ","flip","バーディが出た側は相手の数字を逆転"));
   setCard.appendChild(toggle("点差を5単位で切り上げ","roundUp5","差1〜5→5、6〜10→10、11〜15→15…"));
   setCard.appendChild(toggle("後半で組み合わせを仕切り直す","splitBack","10番から新しい打順で再スタート"));
   setCard.appendChild(toggle("チップ（バーディー等）を有効にする","tipOn","出した人が他の3人から受け取る"));
   setCard.appendChild(toggle("オリンピックを有効にする","olyOn","ワンオンを最初に乗った位置の遠い順に金銀銅鉄"));
+  setCard.appendChild(toggle("ハンディキャップを効かせる","hcpOn","各自のハーフごとのハンデ数を入力（上手い人は0）"));
+  if (S.hcpOn){
+    var hcpBox = el("div",{class:"settings-box"});
+    hcpBox.appendChild(el("div",{class:"card-label"},"各自のハンデ（ハーフごと）"));
+    if (!S.hp){
+      hcpBox.appendChild(el("div",{class:"hint", style:"color:#9A3B52"},"このコースはHP（ホールハンディ）が未登録のため、ハンデを正しく配分できません。宝塚（旧・新）を選ぶか、コース登録時にHPを入れてください。"));
+    }
+    [0,1,2,3].forEach(function(p){
+      var row = el("div",{class:"hcp-row"});
+      row.appendChild(el("span",{class:"seat-chip", style:"background:"+SEAT_COLOR[SEAT[p]]}, SEAT[p]));
+      row.appendChild(el("span",{style:"flex:1;min-width:70px;font-size:14px"}, dispName(p)));
+      row.appendChild(el("div",{class:"hcp-half"},[
+        el("span",{class:"hcp-half-label"},"前半"),
+        stepper((function(pp){return function(){return S.hcpFront[pp];};})(p),
+                (function(pp){return function(v){S.hcpFront[pp]=v;};})(p), 0, 9)
+      ]));
+      row.appendChild(el("div",{class:"hcp-half"},[
+        el("span",{class:"hcp-half-label"},"後半"),
+        stepper((function(pp){return function(){return S.hcpBack[pp];};})(p),
+                (function(pp){return function(v){S.hcpBack[pp]=v;};})(p), 0, 9)
+      ]));
+      hcpBox.appendChild(row);
+    });
+    hcpBox.appendChild(el("div",{class:"hint"},"ハンデを受ける人は、そのハーフのHPが小さいホールから順に1打引いた『ネット』でベガスを計算します。例：前半3なら前半のHP1・2・3のホールで各1打。"));
+    setCard.appendChild(hcpBox);
+  }
   setCard.appendChild(el("div",{class:"point-box"},[
     el("span",null,"1点あたり"),
     el("input",{type:"number", class:"num-input", value:S.pointValue, oninput:function(ev){ S.pointValue=parseInt(ev.target.value,10)||0; render(); }}),
@@ -408,15 +573,38 @@ function render(){
         tbody.appendChild(el("tr",{class:"divider"}, el("td",{colspan:7},"後半スタート — 打順 仕切り直し")));
       }
 
+      // ペア明示（緑チーム vs 赤チーム）
+      // pairing[0]=緑side, pairing[1]=赤side（seatインデックス）。seatMapで実プレーヤーへ
+      var greenPlayers = pairing[0].map(function(si){ return seatMap[si]; });
+      var redPlayers   = pairing[1].map(function(si){ return seatMap[si]; });
+      var shortName = function(p){
+        var nm = S.names[p];
+        if (nm){ return nm.length>4 ? nm.slice(0,4) : nm; }
+        return SEAT[p];
+      };
+      var pairTd = el("td",{colspan:7, style:"text-align:left;padding:6px 6px 2px;font-size:12px;font-weight:700"},[
+        el("span",{style:"color:#1F6F4A"}, "緑 "+greenPlayers.map(shortName).join("＋")),
+        el("span",{style:"color:#aaa;font-weight:400"}, "  vs  "),
+        el("span",{style:"color:#9A3B52"}, "赤 "+redPlayers.map(shortName).join("＋"))
+      ]);
+      tbody.appendChild(el("tr", null, pairTd));
+
+      var smRow = getStrokeMap();
       var scoreCells=[0,1,2,3].map(function(p){
         var seatIdx=seatMap.indexOf(p);
         var sideOf=-1;
         pairing.forEach(function(sp,si){ if(sp.indexOf(seatIdx)!==-1) sideOf=si; });
-        return el("td",null, el("input",{
+        var hasStroke = S.hcpOn && smRow[p][h]>0;
+        var inputEl = el("input",{
           class:"score-input", inputmode:"numeric", value:S.scores[h][p],
           style:"border-color:"+(sideOf===0?"#1F6F4A":"#9A3B52"),
           oninput:(function(pp){return function(ev){ setScore(h,pp,ev.target.value); };})(p)
-        }));
+        });
+        var cellChildren = [inputEl];
+        if (hasStroke){
+          cellChildren.push(el("div",{style:"font-size:10px;color:#9A3B52;font-weight:700;margin-top:1px"},"▲ハンデ1"));
+        }
+        return el("td",null, cellChildren);
       });
 
       var resCell;
@@ -434,7 +622,7 @@ function render(){
 
       tbody.appendChild(el("tr",null,[
         el("td",{class:"hole-no"}, String(holeNo)),
-        el("td",null, el("input",{class:"par-input", value:S.pars[h], oninput:function(ev){ S.pars[h]=parseInt(ev.target.value,10)||PAR_DEFAULT; render(); }})),
+        el("td",null, el("input",{class:"par-input", value:S.pars[h], oninput:function(ev){ S.pars[h]=parseInt(ev.target.value,10)||PAR_DEFAULT; S.courseId="__custom__"; render(); }})),
         scoreCells[0],scoreCells[1],scoreCells[2],scoreCells[3],
         resCell
       ]));
